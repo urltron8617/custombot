@@ -1,36 +1,35 @@
-import { useRef, useState, useEffect, useMemo, useCallback } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import Layout from '@/components/layout';
 import styles from '@/styles/Home.module.css';
 import { Message } from '@/types/chat';
-import { fetchEventSource } from '@microsoft/fetch-event-source';
 import Image from 'next/image';
 import ReactMarkdown from 'react-markdown';
 import LoadingDots from '@/components/ui/LoadingDots';
-import { Document } from 'langchain/document';
-
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from '@/components/ui/accordion';
 
 export default function Home() {
-  const [query, setQuery] = useState<string>('');
-  const [loading, setLoading] = useState<boolean>(false);
-  const [sourceDocs, setSourceDocs] = useState<Document[]>([]);
+  const [query, setQuery] = useState('');
+  const [visitorid, setVisitorid] = useState('');
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [messageState, setMessageState] = useState<{
     messages: Message[];
     pending?: string;
-    history: [string, string][];
-    pendingSourceDocs?: Document[];
   }>({
     messages: [
       {
-        message: 'Hi, I\'m Optimus Prime',
+        message: 'Hi 🍂',
         type: 'apiMessage',
       },
     ],
-    history: [],
-    pendingSourceDocs: [],
   });
 
-  const { messages, pending, history, pendingSourceDocs } = messageState;
+  const { messages } = messageState;
 
   const messageListRef = useRef<HTMLDivElement>(null);
   const textAreaRef = useRef<HTMLTextAreaElement>(null);
@@ -39,14 +38,13 @@ export default function Home() {
     textAreaRef.current?.focus();
   }, []);
 
-  //handle form submission
-  async function handleSubmit(e: any) {
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
 
     setError(null);
 
-    if (!query) {
-      alert('Please input a question');
+    if (!query || !visitorid) {
+      alert('Please input a question and visitor ID');
       return;
     }
 
@@ -61,59 +59,48 @@ export default function Home() {
           message: question,
         },
       ],
-      pending: undefined,
     }));
 
     setLoading(true);
     setQuery('');
-    setMessageState((state) => ({ ...state, pending: '' }));
-
-    const ctrl = new AbortController();
 
     try {
-      fetchEventSource('/api/chat', {
+      const startTime = Date.now();
+      const response = await fetch('http://34.100.143.11:3000/api/chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'api-key': 'qwertyuiop'
         },
         body: JSON.stringify({
           question,
-          history,
+          visitorid,
         }),
-        signal: ctrl.signal,
-        onmessage: (event) => {
-          if (event.data === '[DONE]') {
-            setMessageState((state) => ({
-              history: [...state.history, [question, state.pending ?? '']],
-              messages: [
-                ...state.messages,
-                {
-                  type: 'apiMessage',
-                  message: state.pending ?? '',
-                  sourceDocs: state.pendingSourceDocs,
-                },
-              ],
-              pending: undefined,
-              pendingSourceDocs: undefined,
-            }));
-            setLoading(false);
-            ctrl.abort();
-          } else {
-            const data = JSON.parse(event.data);
-            if (data.sourceDocs) {
-              setMessageState((state) => ({
-                ...state,
-                pendingSourceDocs: data.sourceDocs,
-              }));
-            } else {
-              setMessageState((state) => ({
-                ...state,
-                pending: (state.pending ?? '') + data.data,
-              }));
-            }
-          }
-        },
       });
+      const endTime = Date.now();
+
+      const data = await response.json();
+      console.log('data', data);
+      if (data.error) {
+        setError(data.error);
+      } else {
+        setMessageState((state) => ({
+          ...state,
+          messages: [
+            ...state.messages,
+            {
+              type: 'apiMessage',
+              message: data.text,
+              responseTime: endTime - startTime, // Add response time to the message
+            },
+          ],
+        }));
+      }
+      console.log('messageState', messageState);
+
+      setLoading(false);
+
+      messageListRef.current?.scrollTo(0, messageListRef.current.scrollHeight);
     } catch (error) {
       setLoading(false);
       setError('An error occurred while fetching the data. Please try again.');
@@ -121,56 +108,31 @@ export default function Home() {
     }
   }
 
-  //prevent empty submissions
-  const handleEnter = useCallback(
-    (e: any) => {
-      if (e.key === 'Enter' && query) {
-        handleSubmit(e);
-      } else if (e.key == 'Enter') {
-        e.preventDefault();
-      }
-    },
-    [query],
-  );
-
-  const chatMessages = useMemo(() => {
-    return [
-      ...messages,
-      ...(pending
-        ? [
-          {
-            type: 'apiMessage',
-            message: pending,
-            sourceDocs: pendingSourceDocs,
-          },
-        ]
-        : []),
-    ];
-  }, [messages, pending, pendingSourceDocs]);
-
-  //scroll to bottom of chat
-  useEffect(() => {
-    if (messageListRef.current) {
-      messageListRef.current.scrollTop = messageListRef.current.scrollHeight;
+  const handleEnter = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && query && visitorid) {
+      handleSubmit(e);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
     }
-  }, [chatMessages]);
+  };
 
   return (
     <>
       <Layout>
         <div className="mx-auto flex flex-col gap-4">
           <h1 className="text-2xl font-bold leading-[1.1] tracking-tighter text-center">
-           Custom AI Assistant - Curie
+            AI Assistant 👀
           </h1>
           <main className={styles.main}>
             <div className={styles.cloud}>
               <div ref={messageListRef} className={styles.messagelist}>
-                {chatMessages.map((message, index) => {
+                {messages.map((message, index) => {
                   let icon;
                   let className;
                   if (message.type === 'apiMessage') {
                     icon = (
                       <Image
+                        key={index}
                         src="/bot-image.png"
                         alt="AI"
                         width="40"
@@ -183,6 +145,7 @@ export default function Home() {
                   } else {
                     icon = (
                       <Image
+                        key={index}
                         src="/usericon.png"
                         alt="Me"
                         width="30"
@@ -191,9 +154,8 @@ export default function Home() {
                         priority
                       />
                     );
-                    // The latest message sent by the user will be animated while waiting for a response
                     className =
-                      loading && index === chatMessages.length - 1
+                      loading && index === messages.length - 1
                         ? styles.usermessagewaiting
                         : styles.usermessage;
                   }
@@ -207,6 +169,22 @@ export default function Home() {
                           </ReactMarkdown>
                         </div>
                       </div>
+                      {message.responseTime && (
+                        <div className="p-5">
+                          <Accordion type="single" collapsible className="flex-col">
+                            <div>
+                              <AccordionItem value={`item-${index}`}>
+                                <AccordionTrigger>
+                                  <h3>Response Time</h3>
+                                </AccordionTrigger>
+                                <AccordionContent>
+                                  <p>Time: {message.responseTime}ms</p>
+                                </AccordionContent>
+                              </AccordionItem>
+                            </div>
+                          </Accordion>
+                        </div>
+                      )}
                     </>
                   );
                 })}
@@ -214,6 +192,14 @@ export default function Home() {
             </div>
             <div className={styles.center}>
               <div className={styles.cloudform}>
+                <textarea
+                  disabled={loading}
+                  value={visitorid}
+                  onChange={(e) => setVisitorid(e.target.value)}
+                  placeholder="Visitor ID"
+                  rows={1}
+                  className={styles.textarea}
+                />
                 <form onSubmit={handleSubmit}>
                   <textarea
                     disabled={loading}
@@ -227,12 +213,13 @@ export default function Home() {
                     placeholder={
                       loading
                         ? 'Waiting for response...'
-                        : 'How can I help you 🌞?'
+                        : 'Ask me 🏯'
                     }
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
                     className={styles.textarea}
                   />
+
                   <button
                     type="submit"
                     disabled={loading}
@@ -243,7 +230,6 @@ export default function Home() {
                         <LoadingDots color="#000" />
                       </div>
                     ) : (
-                      // Send icon SVG in input field
                       <svg
                         viewBox="0 0 20 20"
                         className={styles.svgicon}
